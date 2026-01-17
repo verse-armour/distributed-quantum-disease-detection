@@ -45,7 +45,7 @@ def predict_single_image(
 
     # Load and preprocess image
     transform = get_val_transforms(image_size)
-    image = load_and_preprocess_image(image_path, transform)
+    image = load_and_preprocess_image(image_path, transform=transform)
     image = image.unsqueeze(0).to(device)
 
     # Predict
