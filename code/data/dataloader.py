@@ -4,12 +4,100 @@ DataLoader utilities for ISIC 2017 dataset.
 Provides functions to create train, validation, and test data loaders.
 """
 
-from typing import Tuple, Optional
+import warnings
+from pathlib import Path
+from typing import Tuple, Optional, List, Set
 
 import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from .dataset import ISIC2017Dataset
+
+
+def validate_no_data_leakage(
+    train_dataset: ISIC2017Dataset,
+    val_dataset: ISIC2017Dataset,
+    test_dataset: ISIC2017Dataset,
+) -> bool:
+    """
+    Validate that there is no data leakage between train, validation, and test sets.
+    
+    This function checks for:
+    1. Overlapping image paths between datasets
+    2. Identical image directories being used for different splits
+    
+    Args:
+        train_dataset: Training dataset.
+        val_dataset: Validation dataset.
+        test_dataset: Test dataset.
+        
+    Returns:
+        True if no data leakage is detected, False otherwise.
+        
+    Raises:
+        Warning if data leakage is detected.
+    """
+    has_leakage = False
+    
+    # Extract image paths from each dataset
+    train_paths: Set[str] = {Path(p).name for p, _ in train_dataset.samples}
+    val_paths: Set[str] = {Path(p).name for p, _ in val_dataset.samples}
+    test_paths: Set[str] = {Path(p).name for p, _ in test_dataset.samples}
+    
+    # Check for overlapping image file names between splits
+    train_val_overlap = train_paths & val_paths
+    train_test_overlap = train_paths & test_paths
+    val_test_overlap = val_paths & test_paths
+    
+    if train_val_overlap:
+        warnings.warn(
+            f"DATA LEAKAGE DETECTED: {len(train_val_overlap)} images appear in both "
+            f"train and validation sets. This will cause inflated validation accuracy. "
+            f"Example overlapping images: {list(train_val_overlap)[:3]}",
+            UserWarning
+        )
+        has_leakage = True
+        
+    if train_test_overlap:
+        warnings.warn(
+            f"DATA LEAKAGE DETECTED: {len(train_test_overlap)} images appear in both "
+            f"train and test sets. This will cause inflated test accuracy. "
+            f"Example overlapping images: {list(train_test_overlap)[:3]}",
+            UserWarning
+        )
+        has_leakage = True
+        
+    if val_test_overlap:
+        warnings.warn(
+            f"DATA LEAKAGE DETECTED: {len(val_test_overlap)} images appear in both "
+            f"validation and test sets. "
+            f"Example overlapping images: {list(val_test_overlap)[:3]}",
+            UserWarning
+        )
+        has_leakage = True
+    
+    # Check if same image directory is used for different splits
+    train_dir = train_dataset.image_dir
+    val_dir = val_dataset.image_dir
+    test_dir = test_dataset.image_dir
+    
+    if train_dir == val_dir:
+        warnings.warn(
+            f"DATA LEAKAGE DETECTED: Train and validation sets use the same image "
+            f"directory: {train_dir}. This will cause data leakage.",
+            UserWarning
+        )
+        has_leakage = True
+        
+    if train_dir == test_dir:
+        warnings.warn(
+            f"DATA LEAKAGE DETECTED: Train and test sets use the same image "
+            f"directory: {train_dir}. This will cause data leakage.",
+            UserWarning
+        )
+        has_leakage = True
+    
+    return not has_leakage
 
 
 def get_dataloaders(
@@ -52,6 +140,9 @@ def get_dataloaders(
         split="test",
         image_size=image_size,
     )
+
+    # Validate no data leakage between splits
+    validate_no_data_leakage(train_dataset, val_dataset, test_dataset)
 
     # Create sampler for imbalanced training data
     train_sampler = None
