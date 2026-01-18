@@ -204,6 +204,16 @@ def train(
     logger.info(f"Train samples: {len(train_loader.dataset)}")
     logger.info(f"Val samples: {len(val_loader.dataset)}")
 
+    # Log class distribution for debugging
+    train_dataset = train_loader.dataset
+    val_dataset = val_loader.dataset
+
+    if hasattr(train_dataset, "get_class_distribution"):
+        train_dist = train_dataset.get_class_distribution()
+        val_dist = val_dataset.get_class_distribution()
+        logger.info(f"Train class distribution: {train_dist}")
+        logger.info(f"Val class distribution: {val_dist}")
+
     # Create model
     logger.info("Creating model...")
     model = QCNet()
@@ -269,6 +279,14 @@ def train(
             f"LR={scheduler.get_last_lr()[0]:.6f}, "
             f"Time={epoch_time:.1f}s"
         )
+
+        # Warn if accuracy is suspiciously high (potential data leakage)
+        if train_acc >= 0.99 and val_acc >= 0.99 and epoch < 5:
+            logger.warning(
+                "WARNING: Both train and validation accuracy are >= 99% in early epochs. "
+                "This may indicate data leakage (overlapping images between train/val sets). "
+                "Please verify your dataset configuration."
+            )
 
         # Compute detailed metrics
         metrics = compute_metrics(

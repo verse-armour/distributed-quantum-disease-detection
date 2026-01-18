@@ -4,10 +4,12 @@ Unit tests for data loading and preprocessing.
 
 import sys
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Tuple
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 from PIL import Image
@@ -15,6 +17,9 @@ from torchvision import transforms
 
 # Add code directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "code"))
+
+from data.dataset import ISIC2017Dataset
+from data.dataloader import validate_no_data_leakage
 
 
 def create_dummy_image(size: Tuple[int, int] = (300, 300)) -> Image.Image:
@@ -195,3 +200,109 @@ class TestMaskTransform:
 
         assert tensor.shape == (1, 224, 224)
         assert tensor.dtype == torch.float32
+
+
+class TestDataLeakageValidation:
+    """Tests for data leakage validation function."""
+
+    def test_no_data_leakage(self):
+        """Test that no warning is raised when there is no data leakage."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create directory structure with different images for each split
+            train_dir = Path(tmpdir) / "ISIC-2017_Training_Data"
+            val_dir = Path(tmpdir) / "ISIC-2017_Validation_Data"
+            test_dir = Path(tmpdir) / "ISIC-2017_Test_v2_Data"
+            train_dir.mkdir()
+            val_dir.mkdir()
+            test_dir.mkdir()
+
+            # Create different images for each split
+            for i in range(3):
+                img = create_dummy_image()
+                img.save(train_dir / f"ISIC_{i:07d}.jpg")
+                img.save(val_dir / f"ISIC_{i+100:07d}.jpg")
+                img.save(test_dir / f"ISIC_{i+200:07d}.jpg")
+
+            # Create label files with different image IDs
+            pd.DataFrame({
+                "image_id": [f"ISIC_{i:07d}" for i in range(3)],
+                "melanoma": [1.0, 0.0, 0.0],
+                "seborrheic_keratosis": [0.0, 1.0, 0.0],
+            }).to_csv(Path(tmpdir) / "ISIC-2017_Training_Part3_GroundTruth.csv", index=False)
+
+            pd.DataFrame({
+                "image_id": [f"ISIC_{i+100:07d}" for i in range(3)],
+                "melanoma": [0.0, 1.0, 0.0],
+                "seborrheic_keratosis": [0.0, 0.0, 1.0],
+            }).to_csv(Path(tmpdir) / "ISIC-2017_Validation_Part3_GroundTruth.csv", index=False)
+
+            pd.DataFrame({
+                "image_id": [f"ISIC_{i+200:07d}" for i in range(3)],
+                "melanoma": [0.0, 0.0, 1.0],
+                "seborrheic_keratosis": [0.0, 0.0, 0.0],
+            }).to_csv(Path(tmpdir) / "ISIC-2017_Test_v2_Part3_GroundTruth.csv", index=False)
+
+            # Load datasets
+            train_dataset = ISIC2017Dataset(tmpdir, split="train")
+            val_dataset = ISIC2017Dataset(tmpdir, split="val")
+            test_dataset = ISIC2017Dataset(tmpdir, split="test")
+
+            # Validate no data leakage
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                result = validate_no_data_leakage(train_dataset, val_dataset, test_dataset)
+
+            assert result is True
+            assert len(w) == 0
+
+    def test_data_leakage_detected(self):
+        """Test that warning is raised when data leakage is detected."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create directory structure with overlapping images
+            train_dir = Path(tmpdir) / "ISIC-2017_Training_Data"
+            val_dir = Path(tmpdir) / "ISIC-2017_Validation_Data"
+            test_dir = Path(tmpdir) / "ISIC-2017_Test_v2_Data"
+            train_dir.mkdir()
+            val_dir.mkdir()
+            test_dir.mkdir()
+
+            # Create same-named images for each split (simulating data leakage)
+            for i in range(3):
+                img = create_dummy_image()
+                img.save(train_dir / f"ISIC_{i:07d}.jpg")
+                img.save(val_dir / f"ISIC_{i:07d}.jpg")  # Same file name!
+                img.save(test_dir / f"ISIC_{i+200:07d}.jpg")
+
+            # Create label files with overlapping image IDs
+            pd.DataFrame({
+                "image_id": [f"ISIC_{i:07d}" for i in range(3)],
+                "melanoma": [1.0, 0.0, 0.0],
+                "seborrheic_keratosis": [0.0, 1.0, 0.0],
+            }).to_csv(Path(tmpdir) / "ISIC-2017_Training_Part3_GroundTruth.csv", index=False)
+
+            pd.DataFrame({
+                "image_id": [f"ISIC_{i:07d}" for i in range(3)],  # Same image IDs!
+                "melanoma": [1.0, 0.0, 0.0],
+                "seborrheic_keratosis": [0.0, 1.0, 0.0],
+            }).to_csv(Path(tmpdir) / "ISIC-2017_Validation_Part3_GroundTruth.csv", index=False)
+
+            pd.DataFrame({
+                "image_id": [f"ISIC_{i+200:07d}" for i in range(3)],
+                "melanoma": [0.0, 0.0, 1.0],
+                "seborrheic_keratosis": [0.0, 0.0, 0.0],
+            }).to_csv(Path(tmpdir) / "ISIC-2017_Test_v2_Part3_GroundTruth.csv", index=False)
+
+            # Load datasets
+            train_dataset = ISIC2017Dataset(tmpdir, split="train")
+            val_dataset = ISIC2017Dataset(tmpdir, split="val")
+            test_dataset = ISIC2017Dataset(tmpdir, split="test")
+
+            # Validate data leakage is detected
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                result = validate_no_data_leakage(train_dataset, val_dataset, test_dataset)
+
+            assert result is False
+            assert len(w) >= 1  # At least one warning should be raised
+            # Check that the warning message mentions data leakage
+            assert any("DATA LEAKAGE" in str(warning.message) for warning in w)

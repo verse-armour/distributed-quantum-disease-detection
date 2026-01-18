@@ -12,7 +12,7 @@ from .preprocessing import (
     NORMALIZE_STD,
 )
 from .dataset import ISIC2017Dataset, ISIC2017SegmentationDataset
-from .dataloader import get_dataloaders, get_single_loader
+from .dataloader import get_dataloaders, get_single_loader, validate_no_data_leakage
 
 __all__ = [
     "get_train_transforms",
@@ -26,4 +26,5 @@ __all__ = [
     "ISIC2017SegmentationDataset",
     "get_dataloaders",
     "get_single_loader",
+    "validate_no_data_leakage",
 ]
