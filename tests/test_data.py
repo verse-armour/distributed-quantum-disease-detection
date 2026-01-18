@@ -4,10 +4,12 @@ Unit tests for data loading and preprocessing.
 
 import sys
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Tuple
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 from PIL import Image
@@ -15,6 +17,9 @@ from torchvision import transforms
 
 # Add code directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "code"))
+
+from data.dataset import ISIC2017Dataset
+from data.dataloader import validate_no_data_leakage
 
 
 def create_dummy_image(size: Tuple[int, int] = (300, 300)) -> Image.Image:
@@ -202,11 +207,6 @@ class TestDataLeakageValidation:
 
     def test_no_data_leakage(self):
         """Test that no warning is raised when there is no data leakage."""
-        import warnings
-        import pandas as pd
-        from data.dataset import ISIC2017Dataset
-        from data.dataloader import validate_no_data_leakage
-
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create directory structure with different images for each split
             train_dir = Path(tmpdir) / "ISIC-2017_Training_Data"
@@ -257,11 +257,6 @@ class TestDataLeakageValidation:
 
     def test_data_leakage_detected(self):
         """Test that warning is raised when data leakage is detected."""
-        import warnings
-        import pandas as pd
-        from data.dataset import ISIC2017Dataset
-        from data.dataloader import validate_no_data_leakage
-
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create directory structure with overlapping images
             train_dir = Path(tmpdir) / "ISIC-2017_Training_Data"

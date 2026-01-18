@@ -96,6 +96,14 @@ def validate_no_data_leakage(
             UserWarning
         )
         has_leakage = True
+
+    if val_dir == test_dir:
+        warnings.warn(
+            f"DATA LEAKAGE DETECTED: Validation and test sets use the same image "
+            f"directory: {val_dir}. This will cause data leakage.",
+            UserWarning
+        )
+        has_leakage = True
     
     return not has_leakage
 
